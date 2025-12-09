@@ -347,6 +347,91 @@
             background: #ef4444;
         }
         
+        /* استایل‌های سفارش GitHub */
+        .orders-container {
+            margin-top: 20px;
+        }
+        
+        .order-card {
+            border: 2px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            background: white;
+            transition: all 0.3s;
+        }
+        
+        .order-card:hover {
+            border-color: #3b82f6;
+            box-shadow: 0 5px 20px rgba(59, 130, 246, 0.1);
+        }
+        
+        .order-card.order-completed {
+            border-color: #10b981;
+            background: #f0fdf4;
+        }
+        
+        .order-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #f3f4f6;
+        }
+        
+        .order-header h4 {
+            margin: 0;
+            color: #1f2937;
+            font-size: 1.2rem;
+        }
+        
+        .order-badge {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        
+        .badge-success {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        
+        .badge-warning {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        
+        .order-info {
+            background: #f9fafb;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            font-size: 0.95rem;
+            line-height: 1.6;
+        }
+        
+        .order-meta {
+            display: flex;
+            justify-content: space-between;
+            color: #6b7280;
+            font-size: 0.85rem;
+            margin-bottom: 15px;
+        }
+        
+        .order-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        
+        .order-actions .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
         @keyframes slideIn {
             from {
                 transform: translateX(100%);
@@ -637,6 +722,7 @@
                     <button class="nav-tab" onclick="switchAdminTab('productsAdmin')">محصولات</button>
                     <button class="nav-tab" onclick="switchAdminTab('categories')">دسته‌بندی‌ها</button>
                     <button class="nav-tab" onclick="switchAdminTab('ordersAdmin')">سفارشات</button>
+                    <button class="nav-tab" onclick="switchAdminTab('githubOrders')">سفارش‌های GitHub</button>
                     <button class="nav-tab" onclick="switchAdminTab('invoices')">فاکتورها</button>
                 </div>
                 
@@ -879,6 +965,38 @@
                     </div>
                 </div>
                 
+                <!-- سفارش‌های GitHub -->
+                <div id="githubOrdersTab" class="tab-content">
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 class="card-title">📦 مدیریت سفارش‌های GitHub</h3>
+                            <div>
+                                <button class="btn btn-sm btn-primary" onclick="loadGitHubOrders()">
+                                    <i class="fas fa-sync-alt"></i> به‌روزرسانی
+                                </button>
+                                <button class="btn btn-sm btn-info" onclick="setupGitHubToken()" style="margin-right: 10px;">
+                                    <i class="fas fa-key"></i> تنظیم توکن
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle"></i> 
+                            سفارش‌ها مستقیماً در GitHub Issues ثبت می‌شوند و در اینجا نمایش داده می‌شوند.
+                            برای مشاهده کامل روی "مشاهده در GitHub" کلیک کنید.
+                        </div>
+                        
+                        <div id="githubOrdersContainer">
+                            <div class="text-center" style="padding: 40px;">
+                                <i class="fas fa-spinner fa-spin fa-2x" style="color: #3b82f6;"></i>
+                                <p style="margin-top: 15px;">در حال بارگذاری سفارش‌ها...</p>
+                            </div>
+                        </div>
+                        
+                        <div id="githubStatus" class="mt-3"></div>
+                    </div>
+                </div>
+                
                 <!-- فاکتورها -->
                 <div id="invoicesTab" class="tab-content">
                     <div class="card">
@@ -904,6 +1022,7 @@
         </div>
     </div>
 
+    <script src="config.js"></script>
     <script>
         // رمزهای دسترسی
         const ADMIN_CODE = "M.m****2468";
@@ -919,7 +1038,342 @@
         let categories = [];
         let customers = [];
         let orders = [];
+        let githubOrdersSystem = null;
 
+        // ==================== سیستم GitHub Orders ====================
+        class GitHubOrdersSystem {
+            constructor(config) {
+                this.token = config.token;
+                this.owner = config.owner;
+                this.repo = config.repo;
+                this.baseURL = 'https://api.github.com';
+            }
+
+            async testConnection() {
+                try {
+                    const response = await fetch(`${this.baseURL}/repos/${this.owner}/${this.repo}`, {
+                        headers: {
+                            'Authorization': `token ${this.token}`,
+                            'Accept': 'application/vnd.github.v3+json'
+                        }
+                    });
+                    return response.ok;
+                } catch {
+                    return false;
+                }
+            }
+
+            async submitOrder(orderData) {
+                try {
+                    console.log('📤 ارسال سفارش به GitHub:', orderData);
+                    
+                    const issueData = {
+                        title: `📦 سفارش جدید: ${orderData.customerName} - ${orderData.customerShop}`,
+                        body: this.formatOrderBody(orderData),
+                        labels: ['سفارش', 'جدید', 'pending']
+                    };
+
+                    const response = await fetch(
+                        `${this.baseURL}/repos/${this.owner}/${this.repo}/issues`,
+                        {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': `token ${this.token}`,
+                                'Content-Type': 'application/json',
+                                'Accept': 'application/vnd.github.v3+json'
+                            },
+                            body: JSON.stringify(issueData)
+                        }
+                    );
+
+                    if (response.ok) {
+                        const result = await response.json();
+                        return {
+                            success: true,
+                            issueNumber: result.number,
+                            issueUrl: result.html_url,
+                            message: '✅ سفارش شما ثبت شد! شماره پیگیری: #' + result.number
+                        };
+                    } else {
+                        return {
+                            success: false,
+                            message: '❌ خطا در ثبت سفارش'
+                        };
+                    }
+                } catch (error) {
+                    console.error('خطا:', error);
+                    return {
+                        success: false,
+                        message: '⚠️ خطا در ارتباط'
+                    };
+                }
+            }
+
+            async getOrders() {
+                try {
+                    const response = await fetch(
+                        `${this.baseURL}/repos/${this.owner}/${this.repo}/issues?labels=سفارش`,
+                        {
+                            headers: {
+                                'Authorization': `token ${this.token}`,
+                                'Accept': 'application/vnd.github.v3+json'
+                            }
+                        }
+                    );
+
+                    if (response.ok) {
+                        const issues = await response.json();
+                        return issues.filter(issue => !issue.pull_request);
+                    }
+                    return [];
+                } catch (error) {
+                    console.error('خطا:', error);
+                    return [];
+                }
+            }
+
+            async updateOrderStatus(issueNumber, newStatus) {
+                try {
+                    const response = await fetch(
+                        `${this.baseURL}/repos/${this.owner}/${this.repo}/issues/${issueNumber}`,
+                        {
+                            method: 'PATCH',
+                            headers: {
+                                'Authorization': `token ${this.token}`,
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                state: newStatus === 'completed' ? 'closed' : 'open',
+                                labels: ['سفارش', newStatus === 'completed' ? 'تکمیل‌شده' : 'در انتظار']
+                            })
+                        }
+                    );
+                    return response.ok;
+                } catch (error) {
+                    console.error('خطا:', error);
+                    return false;
+                }
+            }
+
+            formatOrderBody(orderData) {
+                const itemsText = orderData.items.map(item => 
+                    `- **${item.name}** (${item.quantity} عدد) - ${item.price.toLocaleString('fa-IR')} تومان`
+                ).join('\n');
+
+                return `
+## 👤 اطلاعات مشتری
+**نام:** ${orderData.customerName}
+**نام مغازه:** ${orderData.customerShop}
+**شماره تماس:** ${orderData.customerPhone}
+**آدرس:** ${orderData.customerAddress}
+
+## 🛒 محصولات سفارش داده شده
+${itemsText}
+
+## 💰 اطلاعات مالی
+**مبلغ کل:** ${orderData.totalAmount.toLocaleString('fa-IR')} تومان
+
+## 📊 وضعیت سفارش
+- [ ] در انتظار تأیید
+- [ ] تأیید شده
+- [ ] در حال آماده‌سازی
+- [ ] ارسال شده
+- [ ] تحویل داده شده
+
+## 📝 یادداشت‌های مدیر
+(اینجا مدیر می‌تواند یادداشت اضافه کند)
+
+---
+**شماره سفارش محلی:** ${orderData.id}
+**تاریخ ثبت:** ${new Date(orderData.date).toLocaleString('fa-IR')}
+                `;
+            }
+        }
+
+        // توابع GitHub
+        function saveOrderOffline(orderData) {
+            try {
+                const offlineOrders = JSON.parse(localStorage.getItem('rainpart_offline_orders') || '[]');
+                offlineOrders.push({
+                    ...orderData,
+                    offline: true,
+                    savedAt: new Date().toISOString()
+                });
+                localStorage.setItem('rainpart_offline_orders', JSON.stringify(offlineOrders));
+                return true;
+            } catch (error) {
+                console.error('خطا:', error);
+                return false;
+            }
+        }
+
+        function displayGitHubOrders(orders) {
+            let html = '';
+            
+            if (orders.length === 0) {
+                html = '<p class="text-center text-muted">هیچ سفارشی یافت نشد</p>';
+            } else {
+                orders.forEach(order => {
+                    const isClosed = order.state === 'closed';
+                    html += `
+                        <div class="order-card ${isClosed ? 'order-completed' : ''}">
+                            <div class="order-header">
+                                <h4>${order.title}</h4>
+                                <span class="order-badge ${isClosed ? 'badge-success' : 'badge-warning'}">
+                                    ${isClosed ? '✅ تکمیل شده' : '⏳ در انتظار'}
+                                </span>
+                            </div>
+                            <div class="order-body">
+                                <div class="order-info">
+                                    ${order.body.replace(/\n/g, '<br>')}
+                                </div>
+                                <div class="order-meta">
+                                    <small><i class="fas fa-calendar"></i> ${new Date(order.created_at).toLocaleString('fa-IR')}</small>
+                                    <small><i class="fas fa-hashtag"></i> #${order.number}</small>
+                                </div>
+                            </div>
+                            <div class="order-actions">
+                                <a href="${order.html_url}" target="_blank" class="btn btn-sm btn-primary">
+                                    <i class="fas fa-external-link-alt"></i> مشاهده در GitHub
+                                </a>
+                                ${!isClosed ? `
+                                    <button class="btn btn-sm btn-success" onclick="markOrderAsCompleted(${order.number})">
+                                        <i class="fas fa-check"></i> تکمیل شد
+                                    </button>
+                                    <button class="btn btn-sm btn-info" onclick="contactCustomerForOrder(${order.number})">
+                                        <i class="fas fa-phone"></i> تماس با مشتری
+                                    </button>
+                                ` : ''}
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+            
+            return html;
+        }
+
+        async function loadGitHubOrders() {
+            if (!isAdmin) return;
+            
+            const container = document.getElementById('githubOrdersContainer');
+            const statusDiv = document.getElementById('githubStatus');
+            
+            if (!githubOrdersSystem) {
+                container.innerHTML = `
+                    <div class="alert alert-warning">
+                        <h4><i class="fas fa-exclamation-triangle"></i> سیستم GitHub متصل نیست</h4>
+                        <p>برای مشاهده سفارش‌ها، ابتدا باید توکن GitHub را تنظیم کنید.</p>
+                        <button class="btn btn-primary mt-2" onclick="setupGitHubToken()">
+                            <i class="fas fa-key"></i> تنظیم توکن GitHub
+                        </button>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = `
+                <div class="text-center" style="padding: 20px;">
+                    <i class="fas fa-spinner fa-spin fa-2x" style="color: #3b82f6;"></i>
+                    <p style="margin-top: 15px;">در حال دریافت سفارش‌ها از GitHub...</p>
+                </div>
+            `;
+            
+            try {
+                const orders = await githubOrdersSystem.getOrders();
+                container.innerHTML = displayGitHubOrders(orders);
+                
+                statusDiv.innerHTML = `
+                    <div class="alert alert-success">
+                        <i class="fas fa-check-circle"></i>
+                        ${orders.length} سفارش از GitHub دریافت شد
+                    </div>
+                `;
+                
+            } catch (error) {
+                container.innerHTML = `
+                    <div class="alert alert-error">
+                        <h4><i class="fas fa-exclamation-circle"></i> خطا در دریافت سفارش‌ها</h4>
+                        <p>${error.message}</p>
+                        <button class="btn btn-primary mt-2" onclick="loadGitHubOrders()">
+                            <i class="fas fa-redo"></i> تلاش مجدد
+                        </button>
+                    </div>
+                `;
+            }
+        }
+
+        function setupGitHubToken() {
+            const token = prompt(`🔐 تنظیم توکن دسترسی GitHub
+
+برای اتصال سیستم به GitHub، نیاز به توکن دارید:
+
+1. به این آدرس بروید: https://github.com/settings/tokens
+2. روی "Generate new token" کلیک کنید
+3. نام توکن: RainPart-Orders
+4. مدت انقضا: 30 روز
+5. دسترسی‌ها: فقط "repo" (تیک بزنید)
+6. توکن ایجاد شده را کپی و در زیر وارد کنید:
+
+توجه: این توکن فقط در مرورگر شما ذخیره می‌شود.`, '');
+
+            if (token && token.trim()) {
+                if (GITHUB_CONFIG.isValidToken(token)) {
+                    GITHUB_CONFIG.saveToken(token);
+                    showNotification('✅ توکن ذخیره شد. در حال اتصال...', 'success');
+                    
+                    setTimeout(async () => {
+                        githubOrdersSystem = new GitHubOrdersSystem({
+                            token: GITHUB_CONFIG.getToken(),
+                            owner: GITHUB_CONFIG.owner,
+                            repo: GITHUB_CONFIG.repo
+                        });
+                        
+                        const connected = await githubOrdersSystem.testConnection();
+                        if (connected) {
+                            loadGitHubOrders();
+                        }
+                    }, 1000);
+                } else {
+                    showNotification('❌ توکن نامعتبر است', 'error');
+                }
+            }
+        }
+
+        async function markOrderAsCompleted(issueNumber) {
+            if (confirm('آیا از تکمیل این سفارش اطمینان دارید؟')) {
+                if (githubOrdersSystem) {
+                    const success = await githubOrdersSystem.updateOrderStatus(issueNumber, 'completed');
+                    if (success) {
+                        showNotification('✅ سفارش به وضعیت تکمیل شده تغییر کرد');
+                        loadGitHubOrders();
+                    } else {
+                        showNotification('❌ خطا در تغییر وضعیت سفارش', 'error');
+                    }
+                }
+            }
+        }
+
+        function contactCustomerForOrder(issueNumber) {
+            const orders = document.querySelectorAll('.order-card');
+            orders.forEach(order => {
+                const issueNum = order.querySelector('.order-meta small:nth-child(2)')?.textContent?.match(/#(\d+)/)?.[1];
+                if (issueNum && issueNum == issueNumber) {
+                    const phoneMatch = order.textContent.match(/\d{11}/);
+                    if (phoneMatch) {
+                        const phone = phoneMatch[0];
+                        if (confirm(`آیا می‌خواهید با شماره ${phone} تماس بگیرید؟`)) {
+                            window.open(`tel:${phone}`, '_blank');
+                        }
+                    } else {
+                        alert('شماره تماس در این سفارش یافت نشد.');
+                    }
+                }
+            });
+        }
+
+        // ==================== توابع اصلی سیستم ====================
+        
         // داده‌های نمونه
         function loadSampleData() {
             // مشتریان
@@ -1048,7 +1502,6 @@
                 return;
             }
             
-            // جستجوی مشتری
             const customer = customers.find(c => c.phone === phone && c.password === password);
             
             if (customer) {
@@ -1058,7 +1511,6 @@
                     showCustomerPanel();
                     showNotification('خوش آمدید ' + customer.fullName);
                     
-                    // بارگذاری سبد خرید
                     loadCartFromStorage();
                 } else if (customer.status === 'pending') {
                     showNotification('حساب شما در انتظار تأیید است', 'warning');
@@ -1078,15 +1530,30 @@
                 isAdmin = true;
                 showAdminPanel();
                 showNotification('با موفقیت وارد پنل مدیریت شدید');
+                
+                // راه‌اندازی سیستم GitHub
+                setTimeout(async () => {
+                    const token = GITHUB_CONFIG.getToken();
+                    if (token && GITHUB_CONFIG.isValidToken(token)) {
+                        githubOrdersSystem = new GitHubOrdersSystem({
+                            token: token,
+                            owner: GITHUB_CONFIG.owner,
+                            repo: GITHUB_CONFIG.repo
+                        });
+                        
+                        const connected = await githubOrdersSystem.testConnection();
+                        if (connected) {
+                            console.log('✅ سیستم GitHub متصل شد');
+                        }
+                    }
+                }, 1000);
             } else {
                 showNotification('کد دسترسی اشتباه است', 'error');
             }
         }
 
-        // ثبت‌نام مشتری جدید - **این تابع کاملاً درست شده**
+        // ثبت‌نام مشتری جدید
         function registerCustomer() {
-            console.log('دکمه ثبت‌نام کلیک شد!');
-            
             const name = document.getElementById('regName').value.trim();
             const shop = document.getElementById('regShop').value.trim();
             const phone = document.getElementById('regPhone').value.trim();
@@ -1094,9 +1561,6 @@
             const password = document.getElementById('regPassword').value.trim();
             const confirm = document.getElementById('regConfirm').value.trim();
             
-            console.log('داده‌های وارد شده:', { name, shop, phone, address, password, confirm });
-            
-            // اعتبارسنجی
             if (!name || !shop || !phone || !address || !password || !confirm) {
                 showNotification('لطفاً همه فیلدها را پر کنید', 'error');
                 return;
@@ -1112,7 +1576,6 @@
                 return;
             }
             
-            // بررسی تکراری نبودن شماره تماس
             const existingCustomer = customers.find(c => c.phone === phone);
             if (existingCustomer) {
                 showNotification('این شماره قبلاً ثبت شده است', 'error');
@@ -1131,13 +1594,9 @@
                 approvedDate: null
             };
             
-            console.log('مشتری جدید:', newCustomer);
-            
-            // ذخیره در localStorage
             customers.push(newCustomer);
             localStorage.setItem('rainpart_customers', JSON.stringify(customers));
             
-            // ریست فرم
             document.getElementById('regName').value = '';
             document.getElementById('regShop').value = '';
             document.getElementById('regPhone').value = '';
@@ -1147,8 +1606,6 @@
             
             showNotification('ثبت‌نام موفق. منتظر تأیید مدیریت باشید');
             showLogin();
-            
-            console.log('ثبت‌نام کامل شد. لیست مشتریان:', customers);
         }
 
         // نمایش پنل مشتری
@@ -1196,10 +1653,16 @@
             document.querySelectorAll('.nav-tab').forEach(btn => btn.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
             
-            const tabs = ['dashboard', 'customers', 'productsAdmin', 'categories', 'ordersAdmin', 'invoices'];
+            const tabs = ['dashboard', 'customers', 'productsAdmin', 'categories', 'ordersAdmin', 'githubOrders', 'invoices'];
             const index = tabs.indexOf(tab);
             document.querySelectorAll('.nav-tab')[index].classList.add('active');
             document.getElementById(tab + 'Tab').classList.add('active');
+            
+            if (tab === 'githubOrders') {
+                setTimeout(() => {
+                    loadGitHubOrders();
+                }, 100);
+            }
         }
 
         // پر کردن dropdown دسته‌بندی‌ها
@@ -1428,7 +1891,8 @@
             }
         }
 
-        function placeOrder() {
+        // تابع اصلی ثبت سفارش (با GitHub)
+        async function placeOrder() {
             if (!currentUser || !currentUserId) {
                 showNotification('لطفاً ابتدا وارد شوید', 'error');
                 return;
@@ -1464,19 +1928,43 @@
                 totalAmount: totalAmount,
                 status: 'pending',
                 date: new Date().toISOString(),
-                invoiceNumber: 'INV-' + Date.now()
+                invoiceNumber: 'INV-' + Date.now().toString().slice(-8)
             };
             
-            // ذخیره سفارش
+            // 1. ذخیره در localStorage
             orders.push(order);
             localStorage.setItem('rainpart_orders', JSON.stringify(orders));
             
-            // پاک کردن سبد خرید
+            // 2. ارسال به GitHub (اگر سیستم فعال باشد)
+            if (githubOrdersSystem) {
+                showNotification('⏳ در حال ارسال سفارش به سیستم...', 'info');
+                
+                const githubResult = await githubOrdersSystem.submitOrder(order);
+                
+                if (githubResult.success) {
+                    // ذخیره شماره Issue
+                    order.githubIssue = githubResult.issueNumber;
+                    order.githubUrl = githubResult.issueUrl;
+                    localStorage.setItem('rainpart_orders', JSON.stringify(orders));
+                    
+                    showNotification(githubResult.message);
+                } else {
+                    // ذخیره آفلاین
+                    saveOrderOffline(order);
+                    showNotification(githubResult.message + ' سفارش به صورت آفلاین ذخیره شد.');
+                }
+            } else {
+                // اگر GitHub سیستم فعال نیست
+                saveOrderOffline(order);
+                showNotification('✅ سفارش ثبت شد (آفلاین)');
+            }
+            
+            // 3. پاک کردن سبد خرید
             cart = [];
             saveCartToStorage();
             updateCartDisplay();
             
-            showNotification('سفارش ثبت شد. فاکتور برای مدیریت ارسال شد');
+            // 4. به‌روزرسانی لیست سفارش‌ها
             loadCustomerOrders();
         }
 
@@ -1668,7 +2156,6 @@
             products.push(newProduct);
             localStorage.setItem('rainpart_products', JSON.stringify(products));
             
-            // ریست فرم
             document.getElementById('productName').value = '';
             document.getElementById('productPrice').value = '';
             document.getElementById('productDiscount').value = '';
@@ -1714,7 +2201,6 @@
                 document.getElementById('productImage').value = product.image || '';
                 document.getElementById('productDescription').value = product.description || '';
                 
-                // تغییر دکمه به ویرایش
                 const btn = document.querySelector('#productsAdminTab .btn-success');
                 btn.textContent = 'ویرایش محصول';
                 btn.onclick = function() { updateProduct(productId); };
@@ -1749,7 +2235,6 @@
                 
                 localStorage.setItem('rainpart_products', JSON.stringify(products));
                 
-                // ریست فرم
                 document.getElementById('productName').value = '';
                 document.getElementById('productPrice').value = '';
                 document.getElementById('productDiscount').value = '';
@@ -1757,7 +2242,6 @@
                 document.getElementById('productImage').value = '';
                 document.getElementById('productDescription').value = '';
                 
-                // بازگرداندن دکمه به حالت افزودن
                 const btn = document.querySelector('#productsAdminTab .btn-success');
                 btn.textContent = 'افزودن محصول';
                 btn.onclick = addProduct;
@@ -1797,7 +2281,6 @@
             categories.push(newCategory);
             localStorage.setItem('rainpart_categories', JSON.stringify(categories));
             
-            // ریست فرم
             document.getElementById('categoryName').value = '';
             document.getElementById('categoryIcon').value = '';
             document.getElementById('categoryDescription').value = '';
@@ -1906,6 +2389,7 @@ ${order.items.map(item => `  • ${item.quantity} عدد ${item.name} - ${item.p
             currentUserId = null;
             isAdmin = false;
             cart = [];
+            githubOrdersSystem = null;
             
             document.getElementById('customerPanel').classList.add('hidden');
             document.getElementById('adminPanel').classList.add('hidden');
@@ -1918,9 +2402,6 @@ ${order.items.map(item => `  • ${item.quantity} عدد ${item.name} - ${item.p
         document.addEventListener('DOMContentLoaded', function() {
             console.log('صفحه بارگذاری شد');
             loadSampleData();
-            
-            // نمایش دکمه ثبت‌نام
-            console.log('دکمه ثبت‌نام:', document.getElementById('registerBtn'));
         });
     </script>
 </body>
